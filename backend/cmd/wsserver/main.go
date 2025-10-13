@@ -13,8 +13,6 @@ import (
 	"github.com/joe_shih/slot-factory/pkg/wss"
 )
 
-
-
 func main() {
 	// 1. 初始化結構化日誌 Logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -44,8 +42,8 @@ func main() {
 	wsServer := wss.NewServer(ctx, wssConfig, logger)
 
 	// 6. 建立並註冊業務邏輯處理器
-	gameHandler := &dummyGameHandler{logger: logger}
-	wsServer.RegisterHandler(gameHandler)
+	// gameHandler := &dummyGameHandler{logger: logger}
+	// wsServer.RegisterHandler(gameHandler)
 
 	// --- 方法一：使用 Gin 框架 (啟用中) ---
 	runWithGin(logger, wsServer, port)
