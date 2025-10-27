@@ -28,6 +28,12 @@ type connection struct {
 var _ Client = (*connection)(nil)
 
 // newConnection 創建一個新的客戶端連線實例。
+//
+// @param hub - 指向 hub 的指標，用於註冊和訊息傳遞。
+// @param conn - 底層的 websocket 連線。
+// @param r - 建立連線時的 HTTP 請求，用於獲取標頭和遠端位址。
+// @param logger - 用於記錄日誌的 slog 實例。
+// @return *connection - 一個初始化完成的連線實例。
 func newConnection(hub *hub, conn *websocket.Conn, r *http.Request, logger *slog.Logger) *connection {
 	clientID := generateClientID()
 	return &connection{
@@ -91,6 +97,9 @@ func (c *connection) GetTag(key string) (value any, exists bool) {
 }
 
 // readPump 將來自 WebSocket 連線的訊息泵送到 hub。
+// 它會持續讀取客戶端訊息，直到連線關閉或發生錯誤。
+//
+// @param cfg - WebSocket 伺服器的設定參數。
 func (c *connection) readPump(cfg *Config) {
 	defer func() {
 		c.hub.unregister <- c
@@ -112,6 +121,9 @@ func (c *connection) readPump(cfg *Config) {
 }
 
 // writePump 將來自 hub 的訊息泵送到 WebSocket 連線。
+// 它會處理發送佇列中的訊息以及定期的 Ping 訊息。
+//
+// @param cfg - WebSocket 伺服器的設定參數。
 func (c *connection) writePump(cfg *Config) {
 	ticker := time.NewTicker(cfg.PingPeriod)
 	defer func() {
@@ -136,12 +148,6 @@ func (c *connection) writePump(cfg *Config) {
 				return
 			}
 			w.Write(message)
-
-			// Add queued chat messages to the current websocket message.
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(<-c.send)
-			}
 
 			if err := w.Close(); err != nil {
 				c.logger.Warn("write pump failed on closing writer", "error", err)
