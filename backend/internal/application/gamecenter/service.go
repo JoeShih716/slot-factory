@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/joe_shih/slot-factory/internal/adapter/ws"
 	"github.com/joe_shih/slot-factory/internal/application/login"
 	"github.com/joe_shih/slot-factory/internal/domain/game"
 	"github.com/joe_shih/slot-factory/pkg/wss"
@@ -76,6 +77,9 @@ func (s *service) OnDisconnect(client wss.Client) {
 }
 
 func (s *service) OnMessage(client wss.Client, message []byte) {
+	// 將具體的 wss.Client 包裝成我們的轉接器
+	gameClient := ws.NewGameClientAdapter(client)
+
 	// 先解析 action 層
 	var base struct {
 		Action ActionType      `json:"action"`
@@ -83,7 +87,7 @@ func (s *service) OnMessage(client wss.Client, message []byte) {
 	}
 	if err := json.Unmarshal(message, &base); err != nil {
 		s.logger.Warn("failed to unmarshal message", "error", err, "clientID", client.ID())
-		client.Kick("invalid message format")
+		gameClient.Kick("invalid message format")
 		return
 	}
 
@@ -94,11 +98,10 @@ func (s *service) OnMessage(client wss.Client, message []byte) {
 		var payload loginPayload
 		if err := json.Unmarshal(base.Data, &payload); err != nil {
 			s.logger.Warn("invalid auth payload", "error", err, "clientID", client.ID())
-			client.SendMessage(`{"error": "invalid auth payload"}`)
 			return
 		}
-		s.handleLogin(client, payload.Sid)
-		player, _ := client.GetTag("player")
+		s.handleLogin(gameClient, payload.Sid) // <--- 傳遞轉接器
+		player, _ := gameClient.GetTag("player")
 		if player != nil {
 			domainPlayer := *(player.(*game.Player))
 			s.joinGame(payload.GameID, domainPlayer)
@@ -107,53 +110,55 @@ func (s *service) OnMessage(client wss.Client, message []byte) {
 		var payload playPayload
 		if err := json.Unmarshal(base.Data, &payload); err != nil {
 			s.logger.Warn("invalid auth payload", "error", err, "clientID", client.ID())
-			client.SendMessage(`{"error": "invalid auth payload"}`)
 			return
 		}
-		s.handlePlay(client, payload.BetAmount)
+		s.handlePlay(gameClient, payload.BetAmount) // <--- 傳遞轉接器
 	default:
 		s.logger.Warn("unknown action", "action", base.Action, "clientID", client.ID())
-		client.SendMessage("{\"error\": \"unknown action\"}")
 	}
 }
 
-func (s *service) handleLogin(client wss.Client, token string) {
+func (s *service) handleLogin(gameClient game.GameClient, token string) { // <--- 接收介面
 	if token == "" {
-		client.Kick("auth failed: token is missing")
+		gameClient.Kick("auth failed: token is missing")
 		return
 	}
 
-	player, err := s.loginService.Authenticate(token, client)
+	player, err := s.loginService.Authenticate(token, gameClient)
 	if err != nil {
-		s.logger.Error("authentication failed", "error", err, "clientID", client.ID())
-		client.Kick("authentication failed")
+		s.logger.Error("authentication failed", "error", err, "ip", gameClient.GetIP())
+		gameClient.Kick("authentication failed")
 		return
 	}
 
 	// 將驗證成功的 Player 物件附加到連線上
-	client.SetTag("player", player)
-	s.logger.Info("client authenticated successfully", "playerID", player.ID, "playerName", player.Name, "clientID", client.ID())
+	gameClient.SetTag("player", player)
+	s.logger.Info("client authenticated successfully", "playerID", player.ID, "playerName", player.Name, "ip", gameClient.GetIP())
 
-	response := fmt.Sprintf("{\"message\": \"authenticated successfully\", \"playerID\": \"%s\"}", player.ID)
-	client.SendMessage(response)
+	response := game.Envelope{
+		Action:  "auth_success",
+		Payload: fmt.Sprintf("{\"message\": \"authenticated successfully\", \"playerID\": \"%s\"}", player.ID),
+	}
+	player.SendMessage(response)
 }
 
-func (s *service) handlePlay(client wss.Client, betAmount decimal.Decimal) {
+func (s *service) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) { // <--- 接收介面
 
-	player, _ := client.GetTag("player")
+	player, _ := gameClient.GetTag("player")
 	if player == nil {
-		client.Kick("Not Login")
+		gameClient.Kick("Not Login")
+		return
 	}
 	domainPlayer := (player.(*game.Player))
 	gameID, exists := domainPlayer.GetTag("game")
 	if !exists {
-		client.Kick("Not Login")
+		gameClient.Kick("Not in any game")
+		return
 	}
 	realGameID := gameID.(int)
 	game := s.games[realGameID]
 	if game == nil {
-		fmt.Println("handlePlay game not found ", gameID)
-		domainPlayer.Kick("handlePlay game not found ")
+		domainPlayer.Kick("game not found")
 		return
 	}
 	game.Play(domainPlayer, betAmount)
