@@ -2,7 +2,6 @@ package login
 
 import (
 	"github.com/joe_shih/slot-factory/internal/domain/game"
-	"github.com/joe_shih/slot-factory/pkg/wss"
 )
 
 // AuthClient 定義了外部身份驗證服務需要實現的介面。
@@ -44,18 +43,11 @@ func NewService(client AuthClient) *Service {
 }
 
 // Authenticate 根據 token 驗證使用者身份，並回傳一個 domain 層的 Player 物件。
-//
-// Params:
-//   - token: string, 要驗證的權杖。
-//
-// Returns:
-//   - *game.Player: 代表已驗證玩家的 domain 物件。
-//   - error: 如果驗證失敗，則回傳錯誤。
-func (s *Service) Authenticate(token string, client wss.Client) (*game.Player, error) {
+func (s *Service) Authenticate(token string, conn game.GameClient) (*game.Player, error) {
 	data, err := s.authClient.VerifyToken(token)
 	if err != nil {
 		return nil, err
 	}
-	player := game.NewPlayer(data.ID, data.Name, client)
+	player := game.NewPlayer(data.ID, data.Name, conn)
 	return player, nil
 }
