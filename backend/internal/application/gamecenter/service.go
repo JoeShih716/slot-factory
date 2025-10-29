@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/joe_shih/slot-factory/internal/adapter/ws"
 	"github.com/joe_shih/slot-factory/internal/application/login"
 	"github.com/joe_shih/slot-factory/internal/domain/game"
-	"github.com/joe_shih/slot-factory/pkg/wss"
 	"github.com/shopspring/decimal"
 )
 
-// 確保 service 類型在編譯時期就實現了 wss.Subscriber 接口。
-var _ wss.Subscriber = (*service)(nil)
+// 確保 service 類型在編譯時期就實現了 EventHandler 接口。
+var _ EventHandler = (*service)(nil)
 
 // Service 定義了遊戲核心業務邏輯的介面。
 type Service interface {
@@ -49,12 +47,6 @@ type service struct {
 }
 
 // NewService 創建一個新的 game service 實例。
-//
-// Params:
-//   - gameRepo: GameRepository, 遊戲儲存庫的介面實作。
-//
-// Returns:
-//   - Service: 新的 game service 實例。
 func NewService(loginService login.Service, logger *slog.Logger) *service {
 	return &service{
 		loginService: loginService,
@@ -63,12 +55,12 @@ func NewService(loginService login.Service, logger *slog.Logger) *service {
 	}
 }
 
-func (s *service) OnConnect(client wss.Client) {
-	s.logger.Info("game service: client connected", "clientID", client.ID())
+func (s *service) HandleConnect(client game.GameClient) {
+	s.logger.Info("game service: client connected", "ip", client.GetIP())
 }
 
-func (s *service) OnDisconnect(client wss.Client) {
-	s.logger.Info("game service: client disconnected", "clientID", client.ID())
+func (s *service) HandleDisconnect(client game.GameClient) {
+	s.logger.Info("game service: client disconnected", "ip", client.GetIP())
 	// 在這裡可以加入玩家離線的處理邏輯，例如從遊戲中移除
 	player, _ := client.GetTag("player")
 	if player != nil {
@@ -76,32 +68,29 @@ func (s *service) OnDisconnect(client wss.Client) {
 	}
 }
 
-func (s *service) OnMessage(client wss.Client, message []byte) {
-	// 將具體的 wss.Client 包裝成我們的轉接器
-	gameClient := ws.NewGameClientAdapter(client)
-
+func (s *service) HandleMessage(client game.GameClient, message []byte) {
 	// 先解析 action 層
 	var base struct {
 		Action ActionType      `json:"action"`
 		Data   json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(message, &base); err != nil {
-		s.logger.Warn("failed to unmarshal message", "error", err, "clientID", client.ID())
-		gameClient.Kick("invalid message format")
+		s.logger.Warn("failed to unmarshal message", "error", err, "ip", client.GetIP())
+		client.Kick("invalid message format")
 		return
 	}
 
-	s.logger.Info("message received", "action", base.Action, "clientID", client.ID())
+	s.logger.Info("message received", "action", base.Action, "ip", client.GetIP())
 
 	switch base.Action {
 	case Login:
 		var payload loginPayload
 		if err := json.Unmarshal(base.Data, &payload); err != nil {
-			s.logger.Warn("invalid auth payload", "error", err, "clientID", client.ID())
+			s.logger.Warn("invalid auth payload", "error", err, "ip", client.GetIP())
 			return
 		}
-		s.handleLogin(gameClient, payload.Sid) // <--- 傳遞轉接器
-		player, _ := gameClient.GetTag("player")
+		s.handleLogin(client, payload.Sid)
+		player, _ := client.GetTag("player")
 		if player != nil {
 			domainPlayer := *(player.(*game.Player))
 			s.joinGame(payload.GameID, domainPlayer)
@@ -109,16 +98,16 @@ func (s *service) OnMessage(client wss.Client, message []byte) {
 	case Play:
 		var payload playPayload
 		if err := json.Unmarshal(base.Data, &payload); err != nil {
-			s.logger.Warn("invalid auth payload", "error", err, "clientID", client.ID())
+			s.logger.Warn("invalid auth payload", "error", err, "ip", client.GetIP())
 			return
 		}
-		s.handlePlay(gameClient, payload.BetAmount) // <--- 傳遞轉接器
+		s.handlePlay(client, payload.BetAmount)
 	default:
-		s.logger.Warn("unknown action", "action", base.Action, "clientID", client.ID())
+		s.logger.Warn("unknown action", "action", base.Action, "ip", client.GetIP())
 	}
 }
 
-func (s *service) handleLogin(gameClient game.GameClient, token string) { // <--- 接收介面
+func (s *service) handleLogin(gameClient game.GameClient, token string) {
 	if token == "" {
 		gameClient.Kick("auth failed: token is missing")
 		return
@@ -142,8 +131,7 @@ func (s *service) handleLogin(gameClient game.GameClient, token string) { // <--
 	player.SendMessage(response)
 }
 
-func (s *service) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) { // <--- 接收介面
-
+func (s *service) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) {
 	player, _ := gameClient.GetTag("player")
 	if player == nil {
 		gameClient.Kick("Not Login")

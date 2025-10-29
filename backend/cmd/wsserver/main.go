@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joe_shih/slot-factory/internal/adapter/auth/mock"
 	"github.com/joe_shih/slot-factory/internal/adapter/auth/real"
+	"github.com/joe_shih/slot-factory/internal/adapter/ws"
 	"github.com/joe_shih/slot-factory/internal/application/gamecenter"
 	"github.com/joe_shih/slot-factory/internal/application/login"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1000"
@@ -41,7 +42,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// 4. 根據設定檔初始化 Adapters
+	// 4. 根據設定檔初始化底層 Adapters
 	var authClient login.AuthClient
 	switch cfg.Mode {
 	case config.ModeReal:
@@ -52,13 +53,13 @@ func main() {
 		logger.Info("using MOCK auth adapter")
 	}
 
-	// 5. 建立 Application Services
+	// 5. 建立 Application Services (核心業務邏輯)
 	loginService := login.NewService(authClient)
-	gameService := gamecenter.NewService(*loginService, logger.With("component", "game_center"))
+	gameCenterService := gamecenter.NewService(*loginService, logger.With("component", "game_center"))
 
 	// 6. 註冊所有遊戲實例到 Game Center
-	gameService.RegisterGame(game1000.NewGame())
-	gameService.RegisterGame(game1001.NewGame(logger))
+	gameCenterService.RegisterGame(game1000.NewGame())
+	gameCenterService.RegisterGame(game1001.NewGame(logger))
 
 	// 7. 建立 WebSocket 伺服器
 	wssConfig := &wss.Config{
@@ -69,13 +70,16 @@ func main() {
 		WriteBufferSize: cfg.WriteBufferSize,
 	}
 	wsServer := wss.NewServer(ctx, wssConfig, logger.With("component", "wss"))
-	wsServer.Register(gameService) // 將 gamecenter 註冊為 wss 的訂閱者
 
-	// 8. 設定 Gin 引擎並掛載 WebSocket Handler
+	// 8. 建立框架轉接器，並將其註冊到 WebSocket 伺服器
+	wsAdapter := ws.NewGameCenterAdapter(gameCenterService)
+	wsServer.Register(wsAdapter)
+
+	// 9. 設定 Gin 引擎並掛載 WebSocket Handler
 	engine := gin.Default()
 	engine.GET("/ws", gin.WrapH(wsServer))
 
-	// 9. 建立並啟動 HTTP 伺服器
+	// 10. 建立並啟動 HTTP 伺服器
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: engine,
@@ -89,7 +93,7 @@ func main() {
 		}
 	}()
 
-	// 10. 等待中斷信號，執行優雅關機
+	// 11. 等待中斷信號，執行優雅關機
 	<-ctx.Done()
 	stop()
 	logger.Info("shutting down gracefully, press Ctrl+C again to force")
