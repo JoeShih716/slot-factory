@@ -13,9 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joe_shih/slot-factory/internal/adapter/auth/mock"
 	"github.com/joe_shih/slot-factory/internal/adapter/auth/real"
+	walletMock "github.com/joe_shih/slot-factory/internal/adapter/wallet/mock"
 	"github.com/joe_shih/slot-factory/internal/adapter/ws"
 	"github.com/joe_shih/slot-factory/internal/application/gamecenter"
 	"github.com/joe_shih/slot-factory/internal/application/login"
+	"github.com/joe_shih/slot-factory/internal/application/wallet"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1000"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1001"
 	"github.com/joe_shih/slot-factory/pkg/config"
@@ -44,22 +46,25 @@ func main() {
 
 	// 4. 根據設定檔初始化底層 Adapters
 	var authClient login.AuthClient
+	var payment wallet.Payment
 	switch cfg.Mode {
 	case config.ModeReal:
 		authClient = real.NewAuthClient()
 		logger.Info("using REAL auth adapter")
 	default:
 		authClient = mock.NewAuthClient()
+		payment = walletMock.NewPayment()
 		logger.Info("using MOCK auth adapter")
 	}
 
 	// 5. 建立 Application Services (核心業務邏輯)
 	loginService := login.NewService(authClient)
+	walletService := wallet.NewService(logger, payment)
 	gameCenterService := gamecenter.NewService(*loginService, logger.With("component", "game_center"))
 
 	// 6. 註冊所有遊戲實例到 Game Center
-	gameCenterService.RegisterGame(game1000.NewGame())
-	gameCenterService.RegisterGame(game1001.NewGame(logger))
+	gameCenterService.RegisterGame(game1000.NewGame(logger, walletService))
+	gameCenterService.RegisterGame(game1001.NewGame(logger, walletService))
 
 	// 7. 建立 WebSocket 伺服器
 	wssConfig := &wss.Config{

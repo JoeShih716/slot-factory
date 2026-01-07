@@ -2,8 +2,6 @@ package game
 
 import (
 	"encoding/json"
-
-	"github.com/shopspring/decimal"
 )
 
 // Envelope 是所有 WebSocket 訊息的通用外層結構。
@@ -28,8 +26,6 @@ type Player struct {
 	ID string
 	// Name 是玩家的名稱。
 	Name string
-	// Point 是玩家餘額
-	Point decimal.Decimal
 	// client 是指向實現了 GameClient 介面的連線物件。
 	client GameClient
 }

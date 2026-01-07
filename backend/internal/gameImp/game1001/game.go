@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joe_shih/slot-factory/internal/application/wallet"
 	"github.com/joe_shih/slot-factory/internal/domain/game"
 	"github.com/shopspring/decimal"
 )
@@ -24,25 +25,27 @@ type gamePlayer struct {
 // Game 實作一個多人輪盤遊戲 (game.IGame 介面)。
 // 遊戲邏輯：每隔一段時間開獎，開出數字 1~10，開中 1 且有下注的玩家贏得10倍彩金。
 type Game struct {
-	id        int
-	players   map[string]*gamePlayer // 使用玩家 ID 作為 key
-	mu        sync.RWMutex           // 使用讀寫鎖保護 players map
-	state     state
-	countdown int
-	ticker    *time.Ticker  // 遊戲主循環的計時器
-	stopCh    chan struct{} // 用於停止遊戲主循環
-	logger    *slog.Logger
+	id            int
+	players       map[string]*gamePlayer // 使用玩家 ID 作為 key
+	mu            sync.RWMutex           // 使用讀寫鎖保護 players map
+	state         state
+	countdown     int
+	ticker        *time.Ticker  // 遊戲主循環的計時器
+	stopCh        chan struct{} // 用於停止遊戲主循環
+	logger        *slog.Logger
+	walletService *wallet.Service
 }
 
 // NewGame 創建一個新的 1001 輪盤遊戲實例。
-func NewGame(logger *slog.Logger) game.IGame {
+func NewGame(logger *slog.Logger, walletService *wallet.Service) game.IGame {
 	game := &Game{
-		id:      1001,
-		players: make(map[string]*gamePlayer),
-		state:   StateWaiting,
-		ticker:  time.NewTicker(1 * time.Second),
-		stopCh:  make(chan struct{}),
-		logger:  logger.With("gameID", 1001),
+		id:            1001,
+		players:       make(map[string]*gamePlayer),
+		state:         StateWaiting,
+		ticker:        time.NewTicker(1 * time.Second),
+		stopCh:        make(chan struct{}),
+		logger:        logger.With("gameID", 1001),
+		walletService: walletService,
 	}
 	game.startLoop()
 	return game
@@ -138,6 +141,21 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 		return
 	}
 
+	// 嘗試扣款
+	balance, err := g.walletService.Debit(player.ID, betAmount)
+	if err != nil {
+		g.mu.Unlock() // 解鎖後再發訊息
+		gamePlayer.SendMessage(game.Envelope{
+			Action: string(ActionBetResult),
+			Payload: PayloadBetResult{
+				Success: false,
+				Error:   "insufficient funds or payment error",
+			},
+		})
+		g.logger.Error("payment debit failed", "playerID", player.ID, "error", err)
+		return
+	}
+
 	// 更新玩家下注總額
 	gamePlayer.betInfo.betAmount = gamePlayer.betInfo.betAmount.Add(betAmount)
 
@@ -145,6 +163,7 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 	betResultPayload := PayloadBetResult{
 		Success:  true,
 		TotalBet: gamePlayer.betInfo.betAmount,
+		Balance:  balance,
 	}
 	playerBetPayload := PayloadPlayerBet{
 		PlayerID:  gamePlayer.ID,
@@ -199,20 +218,20 @@ func (g *Game) tick() {
 	// 倒數結束，切換狀態
 	switch g.state {
 	case StateWaiting:
-		g.setState_unsafe(StateBetting, 10)
+		g.setState(StateBetting, 10)
 	case StateBetting:
 		// rollWheel 包含自己的鎖管理，所以這裡要先解鎖
 		g.mu.Unlock()
 		g.rollWheel()
 		// 重新獲取鎖以進入下一個狀態
 		g.mu.Lock()
-		g.setState_unsafe(StateWaiting, 3)
+		g.setState(StateWaiting, 3)
 	}
 	g.mu.Unlock()
 }
 
-// setState_unsafe 切換遊戲狀態，此為內部方法，必須在持有寫鎖的情況下調用。
-func (g *Game) setState_unsafe(next state, duration int) {
+// setState 切換遊戲狀態，此為內部方法，必須在持有寫鎖的情況下調用。
+func (g *Game) setState(next state, duration int) {
 	g.state = next
 	g.countdown = duration
 	g.logger.Info("state changed", "state", next, "countdown", duration)
@@ -242,6 +261,9 @@ func (g *Game) rollWheel() {
 		Action:  string(ActionOpening),
 		Payload: PayloadOpening{Number: number},
 	}
+	// 廣播開獎號碼
+	allPlayers := g.getAllPlayers_unsafe()
+	g.broadcast(allPlayers, openingMsg)
 
 	g.mu.Lock() // 加鎖以安全地遍歷和修改玩家
 	// 遍歷玩家，計算並發送輸贏結果
@@ -252,24 +274,27 @@ func (g *Game) rollWheel() {
 			if isWin {
 				winAmount = betAmount.Mul(decimal.NewFromInt(10))
 			}
-
+			// 派彩
+			newBalance, err := g.walletService.Credit(p.ID, winAmount)
+			if err != nil {
+				g.logger.Error("payment credit failed", "playerID", p.ID, "amount", winAmount, "error", err)
+				// TODO: 處理派彩失敗的情況 (例如重試佇列)
+			}
 			// 在 goroutine 中發送個人訊息，避免阻塞
 			go p.SendMessage(game.Envelope{
 				Action: string(ActionWinResult),
 				Payload: PayloadWinResult{
 					BetAmount: betAmount,
 					WinAmount: winAmount,
+					Balance:   newBalance,
 				},
 			})
 			// 重置玩家下注額
 			p.betInfo.betAmount = decimal.Zero
 		}
 	}
-	allPlayers := g.getAllPlayers_unsafe()
-	g.mu.Unlock() // 解鎖
 
-	// 廣播開獎號碼
-	g.broadcast(allPlayers, openingMsg)
+	g.mu.Unlock() // 解鎖
 }
 
 // broadcast 將訊息發送給指定的玩家列表。

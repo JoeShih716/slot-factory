@@ -58,6 +58,7 @@ type PayloadBetResult struct {
 	Success  bool            `json:"success"`
 	Error    string          `json:"error,omitempty"`
 	TotalBet decimal.Decimal `json:"totalBet,omitempty"`
+	Balance  decimal.Decimal `json:"balance,omitempty"`
 }
 
 // PayloadOpening 廣播開獎結果。
@@ -69,4 +70,5 @@ type PayloadOpening struct {
 type PayloadWinResult struct {
 	BetAmount decimal.Decimal `json:"betAmount"`
 	WinAmount decimal.Decimal `json:"winAmount"`
+	Balance   decimal.Decimal `json:"balance"`
 }
