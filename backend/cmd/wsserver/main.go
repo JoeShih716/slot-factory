@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -32,13 +33,30 @@ func main() {
 	// 1. 初始化結構化日誌 Logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	// 2. 載入設定檔
-	cfg, err := config.LoadConfig[config.WebsocketConfig](configPath)
+	// 2. 決定當前環境 (default: local)
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "local"
+	}
+	logger.Info("loading config", "env", env)
+
+	// 3. 載入設定檔 (e.g., config.local.yaml)
+	cfg, err := config.LoadConfig[config.WebsocketConfig](configPath, env)
 	if err != nil {
 		logger.Error("cannot load config", "error", err)
 		os.Exit(1)
 	}
 	port := cfg.Port
+
+	// 業界慣例：優先讀取環境變數 PORT (常見於 Cloud Run, Heroku, K8s)
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			port = p
+			logger.Info("using port from environment variable", "port", port)
+		} else {
+			logger.Warn("invalid PORT environment variable, using config value", "envPort", envPort, "configPort", port)
+		}
+	}
 
 	// 3. 建立一個 context 用於監聽中斷信號，以實現優雅關機
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -47,7 +65,13 @@ func main() {
 	// 4. 根據設定檔初始化底層 Adapters
 	var authClient login.AuthClient
 	var payment wallet.Payment
-	switch cfg.Mode {
+
+	mode := cfg.Mode
+	if envMode := os.Getenv("MODE"); envMode != "" {
+		logger.Info("using mode from environment variable", "mode", envMode)
+		mode = config.AdapterMode(envMode)
+	}
+	switch mode {
 	case config.ModeReal:
 		authClient = real.NewAuthClient()
 		logger.Info("using REAL auth adapter")

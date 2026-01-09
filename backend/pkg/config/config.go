@@ -33,16 +33,21 @@ type APIConfig struct {
 //
 // 參數說明：
 //   - configPath: string, 設定檔所在的目錄路徑。
+//   - env: string, 環境名稱 (e.g., "local", "dev", "prod")。
 //
 // 回傳值：
 //   - *Config: 載入的設定物件。
 //   - error: 如果載入失敗，則返回錯誤。
 //
 // LoadConfig 使用泛型回傳指定類型的設定。
-func LoadConfig[T any](configPath string) (*T, error) {
+func LoadConfig[T any](configPath string, env string) (*T, error) {
 	v := viper.New() // 建議每次都 new 一個，避免 cmd 間衝突
 	v.AddConfigPath(configPath)
-	v.SetConfigName("config") // 例如 config.yaml
+
+	// 設定讀取的檔案名稱: config.{env}
+	// 例如 env="local" -> config.local.yaml
+	configName := fmt.Sprintf("config.%s", env)
+	v.SetConfigName(configName)
 	v.SetConfigType("yaml")
 	v.AutomaticEnv()
 

@@ -1,0 +1,21 @@
+# 忽略 Git 版控目錄
+.git
+.gitignore
+
+# 忽略本地編譯的執行檔與暫存
+bin/
+tmp/
+*.exe
+*.o
+*.test
+
+# 忽略各類 IDE 設定檔
+.vscode/
+.idea/
+*.swp
+
+# 忽略文件與 Docker 自身 (不需要打包進去)
+Dockerfile*
+docker-compose*
+README.md
+PROJECT_PLAN.md

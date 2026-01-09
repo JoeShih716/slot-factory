@@ -1,7 +1,0 @@
-  port: 8081
-  writeWaitSec: 10
-  pongWaitSec: 60
-  maxMessageSize: 512
-  readBufferSize: 1024
-  writeBufferSize: 1024
-  mode: "mock"

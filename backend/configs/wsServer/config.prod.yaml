@@ -1,0 +1,9 @@
+# Production Environment Configuration
+# 透過 K8s/Docker 環境變數 PORT 覆蓋此處設定
+port: 8080
+mode: "real" # Production 必須接真實金流
+writeWaitSec: 10
+pongWaitSec: 60
+maxMessageSize: 512
+readBufferSize: 1024
+writeBufferSize: 1024

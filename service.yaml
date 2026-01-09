@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: game-server-service
+spec:
+  selector:
+    app: game-server
+  ports:
+    - protocol: TCP
+      port: 80        # 外部訪問的 Port (LoadBalancer 對外)
+      targetPort: 8080 # 容器內部的 Port
+  type: LoadBalancer # 在本機 OrbStack 會自動分配一個 Local IP
