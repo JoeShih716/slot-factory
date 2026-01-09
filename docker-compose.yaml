@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # 我們的核心遊戲服務
+  game-server:
+    # 指定 build 上下文為 backend 資料夾，Docker 會自動去找裡面的 Dockerfile
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev # 使用 Dockerfile 裡的 dev 階段 (含 Air)
+
+    # 掛載 Volumes: 讓本機的 backend 資料夾直接對應到容器內的 /app
+    # 這樣你改本機檔案，容器內就會變
+    volumes:
+      - ./backend:/app
+
+    # 這裡就是 "Port Mapping"
+    # 左邊 8080 是您電腦(Host)的 Port
+    # 右邊 8080 是容器(Container)裡面程式聽的 Port
+    ports:
+      - "8080:8080"
+
+    # 環境變數設定
+    environment:
+      - APP_ENV=local
+      - PORT=8080
+
+    # 讓它在同一網路內可以用 "game-server" 這個名字被找到
+    networks:
+      - slot-network
+
+  # 未來可以加入的服務：Redis (用於存遊戲狀態)
+  # redis:
+  #   image: redis:alpine
+  #   networks:
+  #     - slot-network
+
+# 定義一個專用網路，讓服務之間互通，但外界(您的電腦)除了 Ports 指定的開口外無法進入
+networks:
+  slot-network:
+    driver: bridge

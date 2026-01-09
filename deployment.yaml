@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-server
+  labels:
+    app: game-server
+spec:
+  replicas: 2 # 執行兩個副本，實現高可用 (HA)
+  selector:
+    matchLabels:
+      app: game-server
+  template:
+    metadata:
+      labels:
+        app: game-server
+    spec:
+      containers:
+        - name: game-server
+          # 注意：這裡使用本地 build 的 image (需設定 imagePullPolicy: Never 或先把 image load 進去)
+          # 在 OrbStack/Docker Desktop，本地 build 的 image 可以直接用
+          image: slot-factory-game-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080 # 應用程式監聽的 Port (config.prod.yaml 裡的設定)
+          env:
+            - name: APP_ENV
+              value: "local" # 本地測試先用 local (Mock 模式)
+            - name: PORT
+              value: "8080"
+            - name: GIN_MODE
+              value: "release"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
