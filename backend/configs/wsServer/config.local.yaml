@@ -1,9 +1,20 @@
 # Local Development Environment Configuration
 # 透過 K8s/Docker 環境變數 PORT 覆蓋此處設定
-  port: 8080
+port: 8080
+writeWaitSec: 10
+pongWaitSec: 60
+maxMessageSize: 512
+readBufferSize: 1024
+writeBufferSize: 1024
+
+auth:
   mode: "mock"
-  writeWaitSec: 10
-  pongWaitSec: 60
-  maxMessageSize: 512
-  readBufferSize: 1024
-  writeBufferSize: 1024
+
+database:
+  driver: "proxy"
+  dsn: "root:root@tcp(mysql:3306)/slot_factory?charset=utf8mb4&parseTime=True&loc=Asia%2FTaipei"
+
+external:
+  wallet:
+    baseUrl: "http://mock-platform:8000"
+    apiKey: "local-dev-key"

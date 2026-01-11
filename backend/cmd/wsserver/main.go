@@ -12,17 +12,20 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joe_shih/slot-factory/internal/adapter/auth/mock"
-	"github.com/joe_shih/slot-factory/internal/adapter/auth/real"
+	authMock "github.com/joe_shih/slot-factory/internal/adapter/auth/mock"
+	authReal "github.com/joe_shih/slot-factory/internal/adapter/auth/real"
 	walletMock "github.com/joe_shih/slot-factory/internal/adapter/wallet/mock"
+	walletProxy "github.com/joe_shih/slot-factory/internal/adapter/wallet/proxy"
 	"github.com/joe_shih/slot-factory/internal/adapter/ws"
 	"github.com/joe_shih/slot-factory/internal/application/gamecenter"
 	"github.com/joe_shih/slot-factory/internal/application/login"
 	"github.com/joe_shih/slot-factory/internal/application/wallet"
+	"github.com/joe_shih/slot-factory/internal/config"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1000"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1001"
-	"github.com/joe_shih/slot-factory/pkg/config"
 	"github.com/joe_shih/slot-factory/pkg/wss"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 // --- Main Application Setup ---
@@ -66,19 +69,50 @@ func main() {
 	var authClient login.AuthClient
 	var payment wallet.Payment
 
-	mode := cfg.Mode
-	if envMode := os.Getenv("MODE"); envMode != "" {
-		logger.Info("using mode from environment variable", "mode", envMode)
-		mode = config.AdapterMode(envMode)
+	// --- Auth Adapter ---
+	authMode := cfg.Auth.Mode
+	if envAuthMode := os.Getenv("AUTH_MODE"); envAuthMode != "" {
+		logger.Info("using auth mode from environment variable", "mode", envAuthMode)
+		authMode = config.AdapterMode(envAuthMode)
 	}
-	switch mode {
+
+	switch authMode {
 	case config.ModeReal:
-		authClient = real.NewAuthClient()
+		authClient = authReal.NewAuthClient()
 		logger.Info("using REAL auth adapter")
 	default:
-		authClient = mock.NewAuthClient()
-		payment = walletMock.NewPayment()
+		authClient = authMock.NewAuthClient()
 		logger.Info("using MOCK auth adapter")
+	}
+
+	// --- Wallet Adapter (Decoupled & Proxy Support) ---
+	dbDriver := cfg.Database.Driver
+	if envDbDriver := os.Getenv("DB_DRIVER"); envDbDriver != "" {
+		logger.Info("using database driver from environment variable", "driver", envDbDriver)
+		dbDriver = envDbDriver
+	}
+
+	// 如果需要 DB (MySQL 或 Proxy 模式下的本地 Logging)
+	var db *gorm.DB
+	if dbDriver == "mysql" || dbDriver == "proxy" {
+		d, err := gorm.Open(mysql.Open(cfg.Database.DSN), &gorm.Config{})
+		if err != nil {
+			logger.Error("failed to connect to mysql", "error", err)
+			os.Exit(1)
+		}
+		db = d
+	}
+
+	switch dbDriver {
+	case "proxy":
+		payment = walletProxy.NewPayment(db, cfg.External.Wallet.BaseURL, cfg.External.Wallet.APIKey)
+		logger.Info("using PROXY (External API + Local Log) adapter")
+	case "mock":
+		payment = walletMock.NewPayment()
+		logger.Info("using MOCK (in-memory) adapter")
+	default:
+		logger.Error("unknown database driver", "driver", dbDriver)
+		os.Exit(1)
 	}
 
 	// 5. 建立 Application Services (核心業務邏輯)
