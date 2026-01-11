@@ -13,15 +13,39 @@ const (
 	ModeReal AdapterMode = "real"
 )
 
+// AuthConfig 包含驗證服務的設定。
+type AuthConfig struct {
+	Mode AdapterMode `mapstructure:"mode"`
+}
+
+// DatabaseConfig 包含資料庫的設定。
+type DatabaseConfig struct {
+	Driver string `mapstructure:"driver"`
+	DSN    string `mapstructure:"dsn"`
+}
+
+// ExternalWalletConfig 包含外接錢包 API 的設定。
+type ExternalWalletConfig struct {
+	BaseURL string `mapstructure:"baseUrl"`
+	APIKey  string `mapstructure:"apiKey"`
+}
+
+// ExternalConfig 包含所有外部服務的設定。
+type ExternalConfig struct {
+	Wallet ExternalWalletConfig `mapstructure:"wallet"`
+}
+
 // WebsocketConfig 包含 WebSocket 伺服器的設定。
 type WebsocketConfig struct {
-	Port            int         `mapstructure:"port"`
-	WriteWaitSec    int         `mapstructure:"writeWaitSec"`
-	PongWaitSec     int         `mapstructure:"pongWaitSec"`
-	MaxMessageSize  int64       `mapstructure:"maxMessageSize"`
-	ReadBufferSize  int         `mapstructure:"readBufferSize"`
-	WriteBufferSize int         `mapstructure:"writeBufferSize"`
-	Mode            AdapterMode `mapstructure:"mode"`
+	Port            int            `mapstructure:"port"`
+	WriteWaitSec    int            `mapstructure:"writeWaitSec"`
+	PongWaitSec     int            `mapstructure:"pongWaitSec"`
+	MaxMessageSize  int64          `mapstructure:"maxMessageSize"`
+	ReadBufferSize  int            `mapstructure:"readBufferSize"`
+	WriteBufferSize int            `mapstructure:"writeBufferSize"`
+	Auth            AuthConfig     `mapstructure:"auth"`
+	Database        DatabaseConfig `mapstructure:"database"`
+	External        ExternalConfig `mapstructure:"external"`
 }
 
 // APIConfig 包含 API 伺服器的設定。
