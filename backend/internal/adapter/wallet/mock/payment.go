@@ -57,3 +57,7 @@ func (p *MockPayment) DebitAndCredit(playerID string, debitAmount decimal.Decima
 	p.fakeUserBalanceList[playerID] = balance
 	return balance, nil
 }
+
+func (p *MockPayment) GetHistory(playerID string, limit int) ([]wallet.TransactionRecord, *wallet.PaymentError) {
+	return []wallet.TransactionRecord{}, nil
+}

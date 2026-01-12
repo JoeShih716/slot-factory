@@ -1,8 +1,8 @@
 version: '3.8'
 
 services:
-  # 我們的核心遊戲服務
-  game-server:
+  # WebSocket 伺服器
+  wsserver:
     # 指定 build 上下文為 backend 資料夾，Docker 會自動去找裡面的 Dockerfile
     build:
       context: ./backend
@@ -19,50 +19,74 @@ services:
     # 右邊 8080 是容器(Container)裡面程式聽的 Port
     ports:
       - "8080:8080"
-
-    # 環境變數設定
     environment:
       - APP_ENV=local
       - PORT=8080
-      - TZ=Asia/Taipei
-
-    # 讓它在同一網路內可以用 "game-server" 這個名字被找到
-    networks:
-      - slot-network
+      - AIR_BIN=wsserver
     depends_on:
       - mysql
+      - redis
+    networks:
+      - slot-backend
+
+  api:
+    build:
+      context: ./backend
+      target: dev
+    ports:
+      - "8081:8081"
+    environment:
+      - APP_ENV=local
+      - API_PORT=8081
+      - AIR_ENTRY=./cmd/api
+      - AIR_BIN=api
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - slot-backend
 
   mysql:
     image: mysql:8.0
-    container_name: slot-mysql
     restart: always
-    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: slot_factory
-      TZ: Asia/Taipei
+      MYSQL_DATABASE: slot_db
     ports:
       - "3306:3306"
     volumes:
       - db-data:/var/lib/mysql
-      - ./backend/scripts/db/init.sql:/docker-entrypoint-initdb.d/init.sql # 初始化腳本
+      - ./backend/scripts/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - slot-network
+      - slot-backend
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    restart: always
+    ports:
+      - "8088:80"
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
-    ports:
-      - "8088:80"
+      PMA_USER: root
+      PMA_PASSWORD: root
+    depends_on:
+      - mysql
     networks:
-      - slot-network
+      - slot-backend
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - slot-backend
 
 # 定義一個專用網路，讓服務之間互通，但外界(您的電腦)除了 Ports 指定的開口外無法進入
 networks:
-  slot-network:
+  slot-backend:
     driver: bridge
 
 volumes:

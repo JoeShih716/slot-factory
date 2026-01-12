@@ -6,12 +6,10 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  # Just plain old go build command. You probably want to change it to a non-default one later.
-  cmd = "go build -o ./tmp/main ./cmd/wsserver"
-  # Binary file yields from `cmd`.
-  bin = "tmp/main"
-  # Customize binary.
-  full_bin = "APP_ENV=local ./tmp/main"
+  # 透過環境變數 AIR_ENTRY 傳入進入點，AIR_BIN 傳入執行檔名稱
+  cmd = "go build -o ./tmp/${AIR_BIN:-main} ${AIR_ENTRY:-./cmd/wsserver}"
+  bin = "tmp/${AIR_BIN:-main}"
+  full_bin = "./tmp/${AIR_BIN:-main}"
   # Watch these filename extensions.
   include_ext = ["go", "tpl", "tmpl", "html", "yaml"]
   # Ignore these filename extensions or directories.

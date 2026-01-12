@@ -13,6 +13,7 @@ type Envelope struct {
 // GameClient 定義了與客戶端通訊所需實現的介面。
 // 這將核心領域 (domain) 與具體的網路實現 (如 WebSocket) 分離。
 type GameClient interface {
+	GetID() string
 	SendMessage(message string) error
 	Kick(reason string) error
 	GetTag(key string) (value any, exists bool)

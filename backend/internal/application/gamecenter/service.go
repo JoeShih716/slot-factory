@@ -5,70 +5,99 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"github.com/joe_shih/slot-factory/internal/application/login"
 	"github.com/joe_shih/slot-factory/internal/domain/game"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
 
-// 確保 service 類型在編譯時期就實現了 EventHandler 接口。
-var _ EventHandler = (*service)(nil)
+// Redis 相關常數
+const (
+	RedisKeyPlayerCountPrefix = "games:%d:count"
+	RedisChannelControl       = "game_control"
+)
 
-// Service 定義了遊戲核心業務邏輯的介面。
-type Service interface {
-	// JoinGame 讓一個玩家加入指定的遊戲。
-	//
-	// Params:
-	//   - ctx: context.Context, 請求上下文。
-	//   - gameID: int, 玩家要加入的遊戲 ID。
-	//   - player: domain.Player, 要加入遊戲的玩家。
-	//
-	// Returns:
-	//   - error: 如果發生錯誤則回傳 error。
-	JoinGame(ctx context.Context, gameID int, player game.Player) error
-
-	// LeaveGame 讓一個玩家離開指定的遊戲。
-	//
-	// Params:
-	//   - ctx: context.Context, 請求上下文。
-	//   - gameID: int, 玩家要離開的遊戲 ID。
-	//   - player: domain.Player, 要離開遊戲的玩家。
-	//
-	// Returns:
-	//   - error: 如果發生錯誤則回傳 error。
-	LeaveGame(ctx context.Context, gameID int, player game.Player) error
+// ControlCommand 代表從 Redis Pub/Sub 接收到的全域指令
+type ControlCommand struct {
+	Action string `json:"action"`
+	Data   string `json:"data"`
 }
 
-// service 是 Service 介面的具體實現。
-type service struct {
+// GameInfo 包含遊戲的基本資訊。
+type GameInfo struct {
+	ID          string `json:"id"`
+	PlayerCount int    `json:"playerCount"`
+}
+
+// 確保 service 類型在編譯時期就實現了 EventHandler 接口。
+var _ EventHandler = (*gameCenter)(nil)
+
+// GameProvider 提供了讀取遊戲列表的介面。
+type GameProvider interface {
+	GetGames(ctx context.Context) []GameInfo
+}
+
+// AdminProvider 提供了系統管理相關的介面。
+type AdminProvider interface {
+	KickAll(ctx context.Context) error
+}
+
+// Service 定義了遊戲核心業務邏輯的介面（整合型，供 wsserver 使用）。
+type Service interface {
+	GameProvider
+	AdminProvider
+	// RegisterGame 註冊一個遊戲。
+	RegisterGame(game game.IGame)
+}
+
+// gameCenter 是 Service 介面的具體實現。
+type gameCenter struct {
 	loginService login.Service
 	logger       *slog.Logger
+	redisClient  *redis.Client
 	games        map[int]game.IGame
+	clientList   map[string]game.GameClient
 }
 
 // NewService 創建一個新的 game service 實例。
-func NewService(loginService login.Service, logger *slog.Logger) *service {
-	return &service{
+func NewService(loginService login.Service, logger *slog.Logger, rdb *redis.Client) *gameCenter {
+	s := &gameCenter{
 		loginService: loginService,
 		logger:       logger,
+		redisClient:  rdb,
 		games:        make(map[int]game.IGame),
+		clientList:   make(map[string]game.GameClient),
 	}
+
+	// 如果有 Redis，啟動監聽器處理廣播指令
+	if rdb != nil {
+		go s.listenControlCommands()
+	}
+
+	return s
 }
 
-func (s *service) HandleConnect(client game.GameClient) {
+func (s *gameCenter) HandleConnect(client game.GameClient) {
 	s.logger.Info("game service: client connected", "ip", client.GetIP())
+	clientID := client.GetID()
+	s.clientList[clientID] = client
 }
 
-func (s *service) HandleDisconnect(client game.GameClient) {
+func (s *gameCenter) HandleDisconnect(client game.GameClient) {
 	s.logger.Info("game service: client disconnected", "ip", client.GetIP())
+	clientID := client.GetID()
+	delete(s.clientList, clientID)
 	// 在這裡可以加入玩家離線的處理邏輯，例如從遊戲中移除
 	player, _ := client.GetTag("player")
 	if player != nil {
-		s.leaveGame(*(player.(*game.Player)))
+		s.leaveGame(*player.(*game.Player))
 	}
 }
 
-func (s *service) HandleMessage(client game.GameClient, message []byte) {
+func (s *gameCenter) HandleMessage(client game.GameClient, message []byte) {
 	// 先解析 action 層
 	var base struct {
 		Action ActionType      `json:"action"`
@@ -92,7 +121,7 @@ func (s *service) HandleMessage(client game.GameClient, message []byte) {
 		s.handleLogin(client, payload.Sid)
 		player, _ := client.GetTag("player")
 		if player != nil {
-			domainPlayer := *(player.(*game.Player))
+			domainPlayer := *player.(*game.Player)
 			s.joinGame(payload.GameID, domainPlayer)
 		}
 	case Play:
@@ -107,7 +136,7 @@ func (s *service) HandleMessage(client game.GameClient, message []byte) {
 	}
 }
 
-func (s *service) handleLogin(gameClient game.GameClient, token string) {
+func (s *gameCenter) handleLogin(gameClient game.GameClient, token string) {
 	if token == "" {
 		gameClient.Kick("auth failed: token is missing")
 		return
@@ -131,13 +160,13 @@ func (s *service) handleLogin(gameClient game.GameClient, token string) {
 	player.SendMessage(response)
 }
 
-func (s *service) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) {
+func (s *gameCenter) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) {
 	player, _ := gameClient.GetTag("player")
 	if player == nil {
 		gameClient.Kick("Not Login")
 		return
 	}
-	domainPlayer := (player.(*game.Player))
+	domainPlayer := player.(*game.Player)
 	gameID, exists := domainPlayer.GetTag("game")
 	if !exists {
 		gameClient.Kick("Not in any game")
@@ -152,12 +181,12 @@ func (s *service) handlePlay(gameClient game.GameClient, betAmount decimal.Decim
 	game.Play(domainPlayer, betAmount)
 }
 
-func (s service) RegisterGame(game game.IGame) {
+func (s *gameCenter) RegisterGame(game game.IGame) {
 	id := game.ID()
 	s.games[id] = game
 }
 
-func (s *service) joinGame(gameID int, player game.Player) error {
+func (s *gameCenter) joinGame(gameID int, player game.Player) error {
 	game := s.games[gameID]
 	if game == nil {
 		player.Kick("joinGame game not found")
@@ -165,16 +194,125 @@ func (s *service) joinGame(gameID int, player game.Player) error {
 	}
 	game.AddPlayer(&player)
 	player.SetTag("game", gameID)
+
+	// Redis 全域計數
+	if s.redisClient != nil {
+		ctx := context.Background()
+		key := fmt.Sprintf(RedisKeyPlayerCountPrefix, gameID)
+		s.redisClient.Incr(ctx, key)
+	}
+
 	return nil
 }
 
-func (s *service) leaveGame(player game.Player) error {
+func (s *gameCenter) leaveGame(player game.Player) error {
 	gameID, exists := player.GetTag("game")
 	if !exists {
 		return nil
 	}
 	realGameID := gameID.(int)
 	game := s.games[realGameID]
-	game.RemovePlayer(&player)
+	if game != nil {
+		game.RemovePlayer(&player)
+	}
+
+	// Redis 全域計數
+	if s.redisClient != nil {
+		ctx := context.Background()
+		key := fmt.Sprintf(RedisKeyPlayerCountPrefix, realGameID)
+		s.redisClient.Decr(ctx, key)
+	}
+
 	return nil
+}
+
+func (s *gameCenter) GetGames(ctx context.Context) []GameInfo {
+	var (
+		cursor uint64
+		keys   []string
+		games  []GameInfo
+	)
+
+	for {
+		var k []string
+		var err error
+		k, cursor, err = s.redisClient.Scan(ctx, cursor, "games:*:count", 100).Result()
+		if err != nil {
+			panic(err)
+		}
+
+		keys = append(keys, k...)
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	pipe := s.redisClient.Pipeline()
+	cmds := make([]*redis.StringCmd, 0, len(keys))
+	for _, key := range keys {
+		cmds = append(cmds, pipe.Get(ctx, key))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	for i, cmd := range cmds {
+		fmt.Println(keys[i], cmd.Val())
+		parts := strings.Split(keys[i], ":")
+		strGameID := parts[1]
+		playerCount, _ := strconv.Atoi(cmd.Val())
+		games = append(games, GameInfo{
+			ID:          strGameID,
+			PlayerCount: playerCount,
+		})
+	}
+	return games
+}
+
+func (s *gameCenter) KickAll(ctx context.Context) error {
+	if s.redisClient == nil {
+		return fmt.Errorf("redis client is nil")
+	}
+
+	cmd := ControlCommand{
+		Action: "kick_all",
+	}
+	payload, _ := json.Marshal(cmd)
+	return s.redisClient.Publish(ctx, RedisChannelControl, payload).Err()
+}
+
+func (s *gameCenter) listenControlCommands() {
+	ctx := context.Background()
+	pubsub := s.redisClient.Subscribe(ctx, RedisChannelControl)
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+	s.logger.Info("listening to redis control commands")
+
+	for msg := range ch {
+		var cmd ControlCommand
+		if err := json.Unmarshal([]byte(msg.Payload), &cmd); err != nil {
+			s.logger.Warn("received invalid control command", "payload", msg.Payload)
+			continue
+		}
+
+		s.logger.Info("control command received", "action", cmd.Action)
+
+		switch cmd.Action {
+		case "kick_all":
+			s.handleGlobalKickAll()
+		}
+	}
+}
+
+func (s *gameCenter) handleGlobalKickAll() {
+	s.logger.Warn("EXECUTING GLOBAL KICK ALL")
+	for _, client := range s.clientList {
+		client.Kick("api kick !")
+	}
 }

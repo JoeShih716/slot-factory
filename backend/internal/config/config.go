@@ -35,6 +35,13 @@ type ExternalConfig struct {
 	Wallet ExternalWalletConfig `mapstructure:"wallet"`
 }
 
+// RedisConfig 包含 Redis 的設定。
+type RedisConfig struct {
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+}
+
 // WebsocketConfig 包含 WebSocket 伺服器的設定。
 type WebsocketConfig struct {
 	Port            int            `mapstructure:"port"`
@@ -46,6 +53,7 @@ type WebsocketConfig struct {
 	Auth            AuthConfig     `mapstructure:"auth"`
 	Database        DatabaseConfig `mapstructure:"database"`
 	External        ExternalConfig `mapstructure:"external"`
+	Redis           RedisConfig    `mapstructure:"redis"`
 }
 
 // APIConfig 包含 API 伺服器的設定。

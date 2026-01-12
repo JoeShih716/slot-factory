@@ -58,3 +58,8 @@ func (a *GameClientAdapter) GetIP() string {
 	}
 	return host
 }
+
+// GetID implements game.GameClient.
+func (a *GameClientAdapter) GetID() string {
+	return a.client.ID()
+}

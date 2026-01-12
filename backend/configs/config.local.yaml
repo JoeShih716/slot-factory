@@ -18,3 +18,8 @@ external:
   wallet:
     baseUrl: "http://mock-platform:8000"
     apiKey: "local-dev-key"
+
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0

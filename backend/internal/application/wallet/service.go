@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -11,8 +12,24 @@ type PaymentError struct {
 	Message string
 }
 
-// Payment 定義了錢包相關的業務邏輯介面。
+// TransactionRecord 代表一筆錢包交易紀錄。
+type TransactionRecord struct {
+	ID              int64           `json:"id"`
+	PlayerID        string          `json:"playerID"`
+	Amount          decimal.Decimal `json:"amount"`
+	TransactionType string          `json:"transactionType"`
+	BalanceAfter    decimal.Decimal `json:"balanceAfter"`
+	CreatedAt       time.Time       `json:"createdAt"`
+}
+
+// HistoryProvider 定義了讀取交易歷史的介面，用於 API 服務層。
+type HistoryProvider interface {
+	GetHistory(playerID string, limit int) ([]TransactionRecord, *PaymentError)
+}
+
+// Payment 定義了完整錢包含業務邏輯介面（包含寫入）。
 type Payment interface {
+	HistoryProvider
 	// GetBalance 取得玩家餘額。
 	GetBalance(playerID string) (balance decimal.Decimal, err *PaymentError)
 
@@ -74,4 +91,13 @@ func (s *Service) DebitAndCredit(playerID string, debitAmount decimal.Decimal, c
 		return newBalance, err
 	}
 	return newBalance, nil
+}
+
+func (s *Service) GetHistory(playerID string, limit int) ([]TransactionRecord, *PaymentError) {
+	records, err := s.payment.GetHistory(playerID, limit)
+	if err != nil {
+		s.logger.Error("get history failed", "playerID", playerID, "error", err)
+		return nil, err
+	}
+	return records, nil
 }

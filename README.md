@@ -8,12 +8,12 @@ Slot Factory 是一個使用現代化 Golang 架構構建的老虎機遊戲後�
 
 ## 🌟 專案特色
 
-*   **現代化架構**: 採用 Domain-Driven Design (DDD) 與 Clean Architecture，將核心邏輯、應用層與轉接層解耦。
-*   **無縫錢包 (Seamless Wallet)**: 支援「代理模式 (Proxy Mode)」—— 由外部平台管理資金，本地非同步記錄交易流水，符合老虎機產業主流架構。
-*   **開發者體驗**: 整合 `Air` 實現本地 Docker 環境下的 Hot Reload 開發。
-*   **配置管理**: 符合 12-Factor App 的分層配置策略，支援 `Auth` 與 `Wallet` 的獨立 Mock/Real 切換。
-*   **雲端原生**: 內建 Dockerfile 多階段建置與 Kubernetes (Deployment/Service) 部署清單。
-*   **在地化支援**: 完整支援台灣時區 (Asia/Taipei) 的資料庫紀錄與系統顯示。
+*   **現代化微服務架構**: 採用 Domain-Driven Design (DDD) 與 Clean Architecture，並將服務拆分為 `wsserver` (連線) 與 `api` (管理/讀取) 獨立服務。
+*   **全域狀態管理 (Redis)**: 整合 Redis 實現跨實體的人數統計 (Counter) 與指令廣播 (Pub/Sub)，支援分散式水平擴展。
+*   **介面隔離原則 (ISP)**: 透過窄介面定義 (`GameProvider`, `AdminProvider`, `HistoryProvider`)，精確控制服務間的依賴。
+*   **無縫錢包 (Seamless Wallet)**: 支援「代理模式 (Proxy Mode)」—— 由外部平台管理資金，本地非同步記錄交易流水。
+*   **開發者體驗**: 整合 `Air` 支援多容器同時開發的 Hot Reload，並提供 Multi-binary Dockerfile。
+*   **配置管理**: 統一的 `configs` 目錄，支援一套軟體多重角色的分層配置策略。
 
 ## 📂 目錄結構
 
@@ -45,15 +45,18 @@ docker-compose up -d --build
 ```
 
 服務啟動後：
-*   **WebSocket Server**: `ws://localhost:8080/ws`
+*   **WebSocket Server**: `ws://localhost:8080/ws` (處理遊戲連線)
+*   **REST API Gateway**: [http://localhost:8081](http://localhost:8081) (查詢列表、歷史、管理員指令)
 *   **phpMyAdmin**: [http://localhost:8088](http://localhost:8088) (帳: root / 密: root)
-*   **測試工具**: 直接瀏覽器打開 `wstest.html` 即可連線遊玩。
+*   **Redis**: `localhost:6379` (全域狀態儲存)
+*   **測試工具**: 直接瀏覽器打開 `wstest.html` 即可連線遊玩（請確保 WS 地址正確）。
 
 ### 核心演示
-在本地 `local` 環境下，預設啟動 **Proxy Wallet + MySQL Logging**:
-1.  **錢包餘額**: 由 `internal/adapter/wallet/proxy` 模擬呼叫外部平台 (固定回傳 100,000)。
-2.  **交易流水**: 每一次 Spin 的結果都會非同步寫入本地 MySQL 的 `wallet_transactions` 表，並使用 **台灣時區 (Asia/Taipei)**。
-3.  **靈活開發**: 您可以修改 `backend/configs/wsServer/config.local.yaml` 來獨立切換 Auth 或 Wallet 為 Mock 模式。
+在本地 `local` 環境下，專案展示了以下進階特性：
+1.  **分散式人數統計**: 透過 Redis，`api` 服務能即時查詢所有伺服器實體上的玩家總量。
+2.  **全域廣播指令**: 呼叫 `api` 的 `/kick_all` 端點，會透過 Redis Pub/Sub 同步踢除所有 `wsserver` 內的線上玩家。
+3.  **職責分離**: 核心業務邏輯僅寫在 `internal/application`，但透過不同介面暴露給連線層與管理層，實現高內聚低耦合。
+4.  **台灣時區支援**: 資料庫流水與查詢系統完整對接 `Asia/Taipei`，符合在地營運需求。
 
 ## ☸️ Kubernetes 部署
 
@@ -68,8 +71,8 @@ kubectl apply -f deploy/k8s/service.yaml
 ## 🛠 技術棧
 
 *   **Language**: Golang 1.25+
-*   **Framework**: Gin (HTTP), Gorilla WebSocket
-*   **Config**: Viper
-*   **DevOps**: Docker, Kubernetes, Air
+*   **Tech**: Redis (State), MySQL (Audit), Gin (HTTP), Gorilla WebSocket
+*   **Strategy**: Clean Architecture / DDD / ISP
+*   **DevOps**: Docker (Multi-binary), Docker Compose, Air (Hot Reload)
 
 

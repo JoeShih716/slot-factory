@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	authMock "github.com/joe_shih/slot-factory/internal/adapter/auth/mock"
 	authReal "github.com/joe_shih/slot-factory/internal/adapter/auth/real"
+
 	walletMock "github.com/joe_shih/slot-factory/internal/adapter/wallet/mock"
 	walletProxy "github.com/joe_shih/slot-factory/internal/adapter/wallet/proxy"
 	"github.com/joe_shih/slot-factory/internal/adapter/ws"
@@ -24,13 +25,14 @@ import (
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1000"
 	"github.com/joe_shih/slot-factory/internal/gameImp/game1001"
 	"github.com/joe_shih/slot-factory/pkg/wss"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 // --- Main Application Setup ---
 
-const configPath = "./configs/wsServer"
+const configPath = "./configs"
 
 func main() {
 	// 1. 初始化結構化日誌 Logger
@@ -115,10 +117,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --- Redis Adapter ---
+	var rdb *redis.Client
+	if cfg.Redis.Addr != "" {
+		rdb = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		logger.Info("connected to redis", "addr", cfg.Redis.Addr)
+	}
+
 	// 5. 建立 Application Services (核心業務邏輯)
 	loginService := login.NewService(authClient)
 	walletService := wallet.NewService(logger, payment)
-	gameCenterService := gamecenter.NewService(*loginService, logger.With("component", "game_center"))
+	gameCenterService := gamecenter.NewService(*loginService, logger.With("component", "game_center"), rdb)
 
 	// 6. 註冊所有遊戲實例到 Game Center
 	gameCenterService.RegisterGame(game1000.NewGame(logger, walletService))
@@ -138,8 +151,10 @@ func main() {
 	wsAdapter := ws.NewGameCenterAdapter(gameCenterService)
 	wsServer.Register(wsAdapter)
 
-	// 9. 設定 Gin 引擎並掛載 WebSocket Handler
+	// 9. 設定 Gin 引擎並掛載 WebSocket 及 REST API Handler
 	engine := gin.Default()
+
+	// WebSocket 端點
 	engine.GET("/ws", gin.WrapH(wsServer))
 
 	// 10. 建立並啟動 HTTP 伺服器

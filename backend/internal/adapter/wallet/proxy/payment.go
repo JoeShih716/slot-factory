@@ -107,6 +107,31 @@ func (p *ProxyPayment) DebitAndCredit(playerID string, debitAmount, creditAmount
 	return resp.Balance, nil
 }
 
+func (p *ProxyPayment) GetHistory(playerID string, limit int) ([]wallet.TransactionRecord, *wallet.PaymentError) {
+	if p.db == nil {
+		return nil, &wallet.PaymentError{Code: 500, Message: "Local database not enabled"}
+	}
+
+	var models []TransactionModel
+	err := p.db.Where("player_id = ?", playerID).Order("created_at DESC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, &wallet.PaymentError{Code: 500, Message: "Database error"}
+	}
+
+	records := make([]wallet.TransactionRecord, len(models))
+	for i, m := range models {
+		records[i] = wallet.TransactionRecord{
+			ID:              m.ID,
+			PlayerID:        m.PlayerID,
+			Amount:          m.Amount,
+			TransactionType: m.TransactionType,
+			BalanceAfter:    m.BalanceAfter,
+			CreatedAt:       m.CreatedAt,
+		}
+	}
+	return records, nil
+}
+
 // --- 輔助方法 ---
 
 type apiResponse struct {
