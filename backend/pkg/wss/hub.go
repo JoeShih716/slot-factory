@@ -71,7 +71,10 @@ func (h *hub) run() {
 			// Context 被取消，開始關閉程序
 			h.logger.Info("hub shutting down")
 			for client := range h.clients {
-				client.Kick("Server is shutting down.")
+				err := client.Kick("Server is shutting down.")
+				if err != nil {
+					h.logger.Error("kick client failed", "error", err, "clientID", client.ID())
+				}
 				delete(h.clients, client)
 				close(client.send)
 			}

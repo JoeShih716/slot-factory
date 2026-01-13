@@ -90,13 +90,13 @@ func (g *Game) AddPlayer(player *game.Player) {
 	})
 
 	// 4. 發送 player_list 給新加入的玩家
-	player.SendMessage(game.Envelope{
+	_ = player.SendMessage(game.Envelope{
 		Action:  string(ActionPlayerList),
 		Payload: PayloadPlayerList{Players: currentPlayerListForNewPlayer},
 	})
 
 	// 5. 發送當前遊戲狀態給新玩家
-	player.SendMessage(game.Envelope{
+	_ = player.SendMessage(game.Envelope{
 		Action: string(ActionStateUpdate),
 		Payload: PayloadStateUpdate{
 			State:     currentState,
@@ -132,12 +132,18 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 
 	if g.state != StateBetting {
 		g.mu.Unlock() // 解鎖後再發訊息
-		gamePlayer.SendMessage(game.Envelope{Action: string(ActionBetResult), Payload: PayloadBetResult{Success: false, Error: "not in betting state"}})
+		err := gamePlayer.SendMessage(game.Envelope{Action: string(ActionBetResult), Payload: PayloadBetResult{Success: false, Error: "not in betting state"}})
+		if err != nil {
+			g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+		}
 		return
 	}
 	if betAmount.LessThanOrEqual(decimal.Zero) {
 		g.mu.Unlock() // 解鎖後再發訊息
-		gamePlayer.SendMessage(game.Envelope{Action: string(ActionBetResult), Payload: PayloadBetResult{Success: false, Error: "bet amount must be positive"}})
+		err := gamePlayer.SendMessage(game.Envelope{Action: string(ActionBetResult), Payload: PayloadBetResult{Success: false, Error: "bet amount must be positive"}})
+		if err != nil {
+			g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+		}
 		return
 	}
 
@@ -145,13 +151,16 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 	balance, err := g.walletService.Debit(player.ID, betAmount)
 	if err != nil {
 		g.mu.Unlock() // 解鎖後再發訊息
-		gamePlayer.SendMessage(game.Envelope{
+		err := gamePlayer.SendMessage(game.Envelope{
 			Action: string(ActionBetResult),
 			Payload: PayloadBetResult{
 				Success: false,
 				Error:   "insufficient funds or payment error",
 			},
 		})
+		if err != nil {
+			g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+		}
 		g.logger.Error("payment debit failed", "playerID", player.ID, "error", err)
 		return
 	}
@@ -176,7 +185,7 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 	g.mu.Unlock() // !!! 解鎖
 
 	// 回傳個人下注結果
-	gamePlayer.SendMessage(game.Envelope{
+	_ = gamePlayer.SendMessage(game.Envelope{
 		Action:  string(ActionBetResult),
 		Payload: betResultPayload,
 	})
@@ -281,17 +290,19 @@ func (g *Game) rollWheel() {
 				// TODO: 處理派彩失敗的情況 (例如重試佇列)
 			}
 			// 在 goroutine 中發送個人訊息，避免阻塞
-			go p.SendMessage(game.Envelope{
-				Action: string(ActionWinResult),
-				Payload: PayloadWinResult{
-					BetAmount: betAmount,
-					WinAmount: winAmount,
-					Balance:   newBalance,
-				},
-			})
-			// 重置玩家下注額
-			p.betInfo.betAmount = decimal.Zero
+			go func() {
+				_ = p.SendMessage(game.Envelope{
+					Action: string(ActionWinResult),
+					Payload: PayloadWinResult{
+						BetAmount: betAmount,
+						WinAmount: winAmount,
+						Balance:   newBalance,
+					},
+				})
+			}()
 		}
+		// 重置玩家下注額
+		p.betInfo.betAmount = decimal.Zero
 	}
 
 	g.mu.Unlock() // 解鎖
@@ -300,7 +311,9 @@ func (g *Game) rollWheel() {
 // broadcast 將訊息發送給指定的玩家列表。
 func (g *Game) broadcast(players []*gamePlayer, message game.Envelope) {
 	for _, p := range players {
-		go p.SendMessage(message) // 使用 goroutine 非阻塞地發送
+		go func() {
+			_ = p.SendMessage(message) // 使用 goroutine 非阻塞地發送
+		}()
 	}
 }
 

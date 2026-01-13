@@ -103,7 +103,10 @@ func (s *gameCenter) HandleDisconnect(client game.GameClient) {
 	// 在這裡可以加入玩家離線的處理邏輯，例如從遊戲中移除
 	player, _ := client.GetTag("player")
 	if player != nil {
-		s.leaveGame(*player.(*game.Player))
+		err := s.leaveGame(*player.(*game.Player))
+		if err != nil {
+			s.logger.Error("leave game failed", "playerID", player.(*game.Player).ID, "error", err)
+		}
 	}
 }
 
@@ -115,7 +118,10 @@ func (s *gameCenter) HandleMessage(client game.GameClient, message []byte) {
 	}
 	if err := json.Unmarshal(message, &base); err != nil {
 		s.logger.Warn("failed to unmarshal message", "error", err, "ip", client.GetIP())
-		client.Kick("invalid message format")
+		err := client.Kick("invalid message format")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", client.GetIP())
+		}
 		return
 	}
 
@@ -132,7 +138,10 @@ func (s *gameCenter) HandleMessage(client game.GameClient, message []byte) {
 		player, _ := client.GetTag("player")
 		if player != nil {
 			domainPlayer := *player.(*game.Player)
-			s.joinGame(payload.GameID, domainPlayer)
+			err := s.joinGame(payload.GameID, domainPlayer)
+			if err != nil {
+				s.logger.Error("join game failed", "playerID", domainPlayer.ID, "error", err)
+			}
 		}
 	case Play:
 		var payload playPayload
@@ -148,14 +157,20 @@ func (s *gameCenter) HandleMessage(client game.GameClient, message []byte) {
 
 func (s *gameCenter) handleLogin(gameClient game.GameClient, token string) {
 	if token == "" {
-		gameClient.Kick("auth failed: token is missing")
+		err := gameClient.Kick("auth failed: token is missing")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", gameClient.GetIP())
+		}
 		return
 	}
 
 	player, err := s.loginService.Authenticate(token, gameClient)
 	if err != nil {
 		s.logger.Error("authentication failed", "error", err, "ip", gameClient.GetIP())
-		gameClient.Kick("authentication failed")
+		err := gameClient.Kick("authentication failed")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", gameClient.GetIP())
+		}
 		return
 	}
 
@@ -167,25 +182,37 @@ func (s *gameCenter) handleLogin(gameClient game.GameClient, token string) {
 		Action:  "auth_success",
 		Payload: fmt.Sprintf("{\"message\": \"authenticated successfully\", \"playerID\": \"%s\"}", player.ID),
 	}
-	player.SendMessage(response)
+	err = player.SendMessage(response)
+	if err != nil {
+		s.logger.Error("send message failed", "error", err, "ip", gameClient.GetIP())
+	}
 }
 
 func (s *gameCenter) handlePlay(gameClient game.GameClient, betAmount decimal.Decimal) {
 	player, _ := gameClient.GetTag("player")
 	if player == nil {
-		gameClient.Kick("Not Login")
+		err := gameClient.Kick("Not Login")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", gameClient.GetIP())
+		}
 		return
 	}
 	domainPlayer := player.(*game.Player)
 	gameID, exists := domainPlayer.GetTag("game")
 	if !exists {
-		gameClient.Kick("Not in any game")
+		err := gameClient.Kick("Not in any game")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", gameClient.GetIP())
+		}
 		return
 	}
 	realGameID := gameID.(int)
 	game := s.games[realGameID]
 	if game == nil {
-		domainPlayer.Kick("game not found")
+		err := domainPlayer.Kick("game not found")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", gameClient.GetIP())
+		}
 		return
 	}
 	game.Play(domainPlayer, betAmount)
@@ -199,7 +226,10 @@ func (s *gameCenter) RegisterGame(game game.IGame) {
 func (s *gameCenter) joinGame(gameID int, player game.Player) error {
 	game := s.games[gameID]
 	if game == nil {
-		player.Kick("joinGame game not found")
+		err := player.Kick("joinGame game not found")
+		if err != nil {
+			s.logger.Error("kick client failed", "error", err, "ip", player.IP())
+		}
 		return fmt.Errorf("game not found")
 	}
 	game.AddPlayer(&player)
@@ -308,7 +338,12 @@ func (s *gameCenter) KickAll(ctx context.Context) error {
 func (s *gameCenter) listenControlCommands() {
 	ctx := context.Background()
 	pubsub := s.redisClient.Subscribe(ctx, RedisChannelControl)
-	defer pubsub.Close()
+	defer func() {
+		err := pubsub.Close()
+		if err != nil {
+			s.logger.Error("close pubsub failed", "error", err)
+		}
+	}()
 
 	ch := pubsub.Channel()
 	s.logger.Info("listening to redis control commands")
@@ -332,6 +367,6 @@ func (s *gameCenter) listenControlCommands() {
 func (s *gameCenter) handleGlobalKickAll() {
 	s.logger.Warn("EXECUTING GLOBAL KICK ALL")
 	for _, client := range s.clientList {
-		client.Kick("api kick !")
+		_ = client.Kick("api kick !")
 	}
 }

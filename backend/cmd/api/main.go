@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -42,8 +43,9 @@ func main() {
 
 	// API 預設 Port 8081 (避免與 wsserver 8080 衝突)
 	port := 8081
-	if envPort := os.Getenv("API_PORT"); envPort != "" {
-		fmt.Sscanf(envPort, "%d", &port)
+	envPort := os.Getenv("API_PORT")
+	if envPort != "" {
+		port, _ = strconv.Atoi(envPort)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -118,5 +120,9 @@ func main() {
 	logger.Info("Shutting down API server...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(shutdownCtx)
+	err = srv.Shutdown(shutdownCtx)
+	if err != nil {
+		logger.Error("API server shutdown failed", "error", err)
+		os.Exit(1)
+	}
 }

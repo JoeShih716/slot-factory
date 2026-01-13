@@ -103,11 +103,14 @@ func (c *connection) GetTag(key string) (value any, exists bool) {
 func (c *connection) readPump(cfg *Config) {
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			c.logger.Warn("read pump failed on closing connection", "error", err)
+		}
 	}()
 	c.conn.SetReadLimit(cfg.MaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(cfg.PongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(cfg.PongWait)); return nil })
+	_ = c.conn.SetReadDeadline(time.Now().Add(cfg.PongWait))
+	c.conn.SetPongHandler(func(string) error { _ = c.conn.SetReadDeadline(time.Now().Add(cfg.PongWait)); return nil })
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -128,15 +131,26 @@ func (c *connection) writePump(cfg *Config) {
 	ticker := time.NewTicker(cfg.PingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			c.logger.Warn("write pump failed on closing connection", "error", err)
+		}
 	}()
 	for {
 		select {
 		case message, ok := <-c.send:
 			c.mu.Lock()
-			c.conn.SetWriteDeadline(time.Now().Add(cfg.WriteWait))
+			err := c.conn.SetWriteDeadline(time.Now().Add(cfg.WriteWait))
+			if err != nil {
+				c.logger.Warn("write pump failed on setting write deadline", "error", err)
+				c.mu.Unlock()
+				return
+			}
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				err := c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err != nil {
+					c.logger.Warn("write pump failed on writing close message", "error", err)
+				}
 				c.mu.Unlock()
 				return
 			}
@@ -147,7 +161,12 @@ func (c *connection) writePump(cfg *Config) {
 				c.mu.Unlock()
 				return
 			}
-			w.Write(message)
+			_, err = w.Write(message)
+			if err != nil {
+				c.logger.Warn("write pump failed on writing message", "error", err)
+				c.mu.Unlock()
+				return
+			}
 
 			if err := w.Close(); err != nil {
 				c.logger.Warn("write pump failed on closing writer", "error", err)
@@ -157,7 +176,12 @@ func (c *connection) writePump(cfg *Config) {
 			c.mu.Unlock()
 		case <-ticker.C:
 			c.mu.Lock()
-			c.conn.SetWriteDeadline(time.Now().Add(cfg.WriteWait))
+			err := c.conn.SetWriteDeadline(time.Now().Add(cfg.WriteWait))
+			if err != nil {
+				c.logger.Warn("write pump failed on setting write deadline", "error", err)
+				c.mu.Unlock()
+				return
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				c.logger.Warn("write pump failed on sending ping", "error", err)
 				c.mu.Unlock()

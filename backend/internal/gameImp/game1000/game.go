@@ -58,16 +58,22 @@ func (g *Game) AddPlayer(player *game.Player) {
 	balance, error := g.walletService.GetBalance(player.ID)
 	if error != nil {
 		g.logger.Error("get balance failed", "playerID", player.ID, "error", error)
-		player.SendMessage(game.Envelope{
+		err := player.SendMessage(game.Envelope{
 			Action:  ActionGetBalance,
 			Payload: balanceResult{Error: error.Message},
 		})
+		if err != nil {
+			g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+		}
 		return
 	}
-	player.SendMessage(game.Envelope{
+	err := player.SendMessage(game.Envelope{
 		Action:  ActionGetBalance,
 		Payload: balanceResult{Success: true, Balance: balance},
 	})
+	if err != nil {
+		g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+	}
 	g.logger.Info("player added", "playerID", player.ID)
 }
 
@@ -97,16 +103,19 @@ func (g *Game) Play(player *game.Player, betAmount decimal.Decimal) {
 	newBalance, err := g.walletService.DebitAndCredit(player.ID, betAmount, winAmount)
 	if err != nil {
 		g.logger.Error("debit and credit failed", "playerID", player.ID, "betAmount", betAmount, "winAmount", winAmount, "error", err)
-		player.SendMessage(game.Envelope{
+		err := player.SendMessage(game.Envelope{
 			Action:  ActionPlayResult,
 			Payload: playResult{Error: err.Message, Balance: newBalance},
 		})
+		if err != nil {
+			g.logger.Error("send message failed", "error", err, "playerID", player.ID)
+		}
 		return
 	}
 	result.Balance = newBalance
 
 	// 將結果包裝在標準的 Envelope 中發送給客戶端
-	player.SendMessage(game.Envelope{
+	_ = player.SendMessage(game.Envelope{
 		Action:  ActionPlayResult,
 		Payload: result,
 	})
