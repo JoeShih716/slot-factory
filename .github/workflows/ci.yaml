@@ -15,16 +15,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 1. 設定 Go 環境 (支援 1.25)
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.25' # 使用與專案相容的版本
+          go-version: '1.25'
+          cache: true
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          working-directory: backend # 指定後端目錄
+      # 2. 【關鍵修改】不使用現成的 action，改為現場編譯最新版
+      # 這樣編譯出來的工具就會天生支援 Go 1.25+
+      - name: Install golangci-lint from source
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+      # 3. 執行 Lint (記得指定資料夾)
+      - name: Run Lint
+        working-directory: backend
+        run: golangci-lint run --timeout=5m
 
   # 2. 單元測試 (Test)
   test:
