@@ -1,7 +1,7 @@
 # Slot Factory 🎰
 
 [![Go Version](https://img.shields.io/badge/go-1.25-blue)](https://go.dev/)
-[![CI Status](https://github.com/joe_shih/slot-factory/actions/workflows/ci.yaml/badge.svg)](https://github.com/joe_shih/slot-factory/actions)
+[![CI Status](https://github.com/JoeShih716/slot-factory/actions/workflows/ci.yaml/badge.svg)](https://github.com/JoeShih716/slot-factory/actions)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-ready-blue)](https://kubernetes.io/)
 
