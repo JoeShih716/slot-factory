@@ -3,8 +3,20 @@ name: Go CI
 on:
   push:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'                # 忽略文件變更
+      - 'deploy/**'            # 忽略 K8s 部署檔
+      - 'docker-compose.yaml'  # 忽略本地 Docker 設定
+      - 'wstest.html'          # 忽略測試工具
+      - 'go.work*'             # 忽略 Go Workspac 設定
   pull_request:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'deploy/**'
+      - 'docker-compose.yaml'
+      - 'wstest.html'
+      - 'go.work*'
 
 jobs:
   # 1. 程式碼品質檢查 (Lint)
