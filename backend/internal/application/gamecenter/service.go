@@ -62,7 +62,17 @@ type gameCenter struct {
 	clientList   map[string]game.GameClient
 }
 
-// NewService 創建一個新的 game service 實例。
+// NewService 建立並初始化一個新的遊戲中心服務實例。
+//
+// 此函式負責依賴注入，並在 Redis 客戶端可用時，啟動背景 goroutine 監聽全域控制指令。
+//
+// 參數說明：
+//   - loginService: login.Service, 負責玩家登入驗證的服務。
+//   - logger: *slog.Logger, 用於記錄日誌的 Logger 實例。
+//   - rdb: *redis.Client, Redis 客戶端，用於全域計數與廣播。如果為 nil，則相關功能將被略過。
+//
+// 回傳值：
+//   - *gameCenter: 初始化完成的遊戲中心服務結構指標。
 func NewService(loginService login.Service, logger *slog.Logger, rdb *redis.Client) *gameCenter {
 	s := &gameCenter{
 		loginService: loginService,
@@ -226,6 +236,16 @@ func (s *gameCenter) leaveGame(player game.Player) error {
 	return nil
 }
 
+// GetGames 取得所有遊戲的狀態列表。
+//
+// 此方法會嘗試從 Redis 取得所有遊戲的即時線上人數（跨服務實體加總）。
+// 它使用了 Redis 的 SCAN 指令來避免阻塞，並透過 Pipeline 批次讀取計數。
+//
+// 參數說明：
+//   - ctx: context.Context, 用於控制 Redis 請求的 Context。
+//
+// 回傳值：
+//   - []GameInfo: 包含遊戲 ID 與當前線上人數的結構列表。
 func (s *gameCenter) GetGames(ctx context.Context) []GameInfo {
 	var (
 		cursor uint64
@@ -233,6 +253,7 @@ func (s *gameCenter) GetGames(ctx context.Context) []GameInfo {
 		games  []GameInfo
 	)
 
+	// 使用 SCAN 迭代搜尋所有符合 games:*:count 模式的 key
 	for {
 		var k []string
 		var err error
@@ -256,9 +277,7 @@ func (s *gameCenter) GetGames(ctx context.Context) []GameInfo {
 
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		if err != nil {
-			panic(err)
-		}
+		panic(err)
 	}
 
 	for i, cmd := range cmds {

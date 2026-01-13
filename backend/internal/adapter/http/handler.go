@@ -16,7 +16,17 @@ type Handler struct {
 	history       wallet.HistoryProvider
 }
 
-// NewHandler 建立一個新的 HTTP Handler。..
+// NewHandler 建立一個新的 HTTP Handler 實例。
+//
+// 此函式採用介面隔離原則(ISP)注入依賴，確保 Handler 僅依賴它所需要的方法集。
+//
+// 參數說明：
+//   - gp: gamecenter.GameProvider, 提供遊戲查詢功能。
+//   - ap: gamecenter.AdminProvider, 提供管理員指令功能。
+//   - hp: wallet.HistoryProvider, 提供錢包歷史查詢功能。
+//
+// 回傳值：
+//   - *Handler: 初始化完成的 HTTP Handler 指標。
 func NewHandler(gp gamecenter.GameProvider, ap gamecenter.AdminProvider, hp wallet.HistoryProvider) *Handler {
 	return &Handler{
 		gameProvider:  gp,
@@ -33,7 +43,16 @@ func (h *Handler) HandleGetGames(c *gin.Context) {
 	})
 }
 
-// HandleKickAll 廣播踢出所有連線玩家。
+// HandleKickAll 處理全域踢除玩家的請求。
+//
+// 此 API 會廣播踢線指令到所有 WebSocket 伺服器實體。
+// 方法：POST /api/v1/admin/kick_all
+//
+// 參數說明：
+//   - c: *gin.Context, Gin 框架的 Context。
+//
+// 回傳值：
+//   - JSON Response: 成功時回傳 200 OK，失敗時回傳 500 Internal Server Error。
 func (h *Handler) HandleKickAll(c *gin.Context) {
 	if err := h.adminProvider.KickAll(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

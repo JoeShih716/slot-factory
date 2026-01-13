@@ -33,10 +33,10 @@ func main() {
 		env = "local"
 	}
 
-	// 載入設定 (API 服務同樣使用 WebsocketConfig 中的資料庫與 Redis 設定)
-	cfg, err := config.LoadConfig[config.WebsocketConfig](configPath, env)
+	// 載入設定 (API	// 2. 載入共用設定 (AppConfig)
+	appCfg, err := config.LoadConfig[config.AppConfig](configPath, env)
 	if err != nil {
-		logger.Error("cannot load config", "error", err)
+		logger.Error("failed to load app config", "error", err)
 		os.Exit(1)
 	}
 
@@ -51,8 +51,8 @@ func main() {
 
 	// 初始化資料庫
 	var db *gorm.DB
-	if cfg.Database.Driver == "mysql" || cfg.Database.Driver == "proxy" {
-		d, err := gorm.Open(mysql.Open(cfg.Database.DSN), &gorm.Config{})
+	if appCfg.Database.Driver == "mysql" || appCfg.Database.Driver == "proxy" {
+		d, err := gorm.Open(mysql.Open(appCfg.Database.DSN), &gorm.Config{})
 		if err != nil {
 			logger.Error("failed to connect to mysql", "error", err)
 			os.Exit(1)
@@ -60,26 +60,32 @@ func main() {
 		db = d
 	}
 
-	// 初始化 Redis
+	// Redis (如果設定檔有填寫)
 	var rdb *redis.Client
-	if cfg.Redis.Addr != "" {
+	if appCfg.Redis.Addr != "" {
 		rdb = redis.NewClient(&redis.Options{
-			Addr:     cfg.Redis.Addr,
-			Password: cfg.Redis.Password,
-			DB:       cfg.Redis.DB,
+			Addr:     appCfg.Redis.Addr,
+			Password: appCfg.Redis.Password,
+			DB:       appCfg.Redis.DB,
 		})
+		logger.Info("connected to redis", "addr", appCfg.Redis.Addr)
 	}
 
-	// 初始化 Adapters (API 服務通常只需要 Read-only 或特定介面)
+	// Auth (Mock) - API 服務這裡暫時用 Mock，實際上可能需要驗證管理員 Token
+	// 如果需要 Real Auth，可從 appCfg.Auth.Mode 判斷
+	authClient := authMock.NewAuthClient()
+
+	// External Wallet (Proxy)
+	// 如果 DB Driver 是 proxy，則需要初始化 ProxyPayment
 	var payment wallet.Payment
-	if cfg.Database.Driver == "proxy" {
-		payment = walletProxy.NewPayment(db, cfg.External.Wallet.BaseURL, cfg.External.Wallet.APIKey)
+	if appCfg.Database.Driver == "proxy" {
+		payment = walletProxy.NewPayment(db, appCfg.External.Wallet.BaseURL, appCfg.External.Wallet.APIKey)
+		logger.Info("using PROXY (External API + Local Log) adapter")
 	} else {
 		payment = walletMock.NewPayment()
 	}
 
 	// 初始化 Services
-	authClient := authMock.NewAuthClient() // API 服務暫時用 Mock
 	loginService := login.NewService(authClient)
 	walletService := wallet.NewService(logger, payment)
 	gameCenterService := gamecenter.NewService(*loginService, logger.With("component", "game_center"), rdb)

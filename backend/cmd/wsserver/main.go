@@ -45,10 +45,10 @@ func main() {
 	}
 	logger.Info("loading config", "env", env)
 
-	// 3. 載入設定檔 (e.g., config.local.yaml)
-	cfg, err := config.LoadConfig[config.WebsocketConfig](configPath, env)
+	// 3. 載入設定檔 (e.g., config.local	// 2. 載入設定
+	cfg, err := config.LoadConfig[config.AppConfig](configPath, env)
 	if err != nil {
-		logger.Error("cannot load config", "error", err)
+		logger.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 	port := cfg.Port
