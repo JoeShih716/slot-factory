@@ -1,6 +1,7 @@
 # Slot Factory 🎰
 
 [![Go Version](https://img.shields.io/badge/go-1.25-blue)](https://go.dev/)
+[![CI Status](https://github.com/joe_shih/slot-factory/actions/workflows/ci.yaml/badge.svg)](https://github.com/joe_shih/slot-factory/actions)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-ready-blue)](https://kubernetes.io/)
 
@@ -51,6 +52,18 @@ docker-compose up -d --build
 *   **Redis**: `localhost:6379` (全域狀態儲存)
 *   **測試工具**: 直接瀏覽器打開 `wstest.html` 即可連線遊玩（請確保 WS 地址正確）。
 
+### 本地驗證 (Local Verification)
+為了確保程式碼品質，我們提供了 `Makefile` 讓開發者在 Commit 前快速檢查：
+
+```bash
+cd backend
+make verify
+```
+
+此指令會自動執行：
+1.  **Lint**: `golangci-lint` (檢查程式碼風格)
+2.  **Test**: `go test` (單元測試)
+
 ### 核心演示
 在本地 `local` 環境下，專案展示了以下進階特性：
 1.  **分散式人數統計**: 透過 Redis，`api` 服務能即時查詢所有伺服器實體上的玩家總量。
@@ -67,6 +80,17 @@ docker-compose up -d --build
 kubectl apply -f deploy/k8s/deployment.yaml
 kubectl apply -f deploy/k8s/service.yaml
 ```
+
+## 🔄 CI/CD 自動化流程
+
+本專案採用 **GitHub Actions** 進行持續整合，確保每次 Commit 的品質。
+
+*   **Workflow**: `.github/workflows/ci.yaml`
+*   **Pipeline Stages**:
+    1.  **Lint**: 使用 `golangci-lint` 進行靜態分析。
+    2.  **Test**: 執行所有單元測試。
+    3.  **Build**: 確保 `wsserver` 與 `api` 雙服務皆可成功編譯。
+*   **Strategy**: 使用 `go install` 現場編譯最新版 Linter，以支援最新的 Go 1.25 特性。
 
 ## 🛠 技術棧
 
